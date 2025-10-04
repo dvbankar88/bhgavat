@@ -1,673 +1,491 @@
-#!/usr/bin/env bash
-set -euo pipefail
+<!DOCTYPE html>
+<html lang="mr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CryptoMitra - Coin Trading Platform</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            box-sizing: border-box;
+        }
+        .coin-animation {
+            animation: coinFloat 2s ease-in-out infinite;
+        }
+        @keyframes coinFloat {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-10px); }
+        }
+        .trade-success {
+            animation: successPulse 0.5s ease-out;
+        }
+        @keyframes successPulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-blue-900 via-purple-900 to-indigo-900 min-h-screen text-white">
+    <!-- Header -->
+    <header class="bg-black bg-opacity-30 backdrop-blur-md p-4 shadow-lg">
+        <div class="container mx-auto flex justify-between items-center">
+            <div class="flex items-center space-x-3">
+                <div class="w-10 h-10 bg-gradient-to-r from-yellow-400 to-orange-500 rounded-full flex items-center justify-center coin-animation">
+                    <span class="text-xl font-bold text-black">₹</span>
+                </div>
+                <h1 class="text-2xl font-bold bg-gradient-to-r from-yellow-400 to-orange-500 bg-clip-text text-transparent">CryptoMitra</h1>
+            </div>
+            <div class="flex items-center space-x-4">
+                <div class="bg-green-600 px-4 py-2 rounded-lg">
+                    <span class="font-semibold">Balance: <span id="userBalance">50</span> coins</span>
+                </div>
+                <button onclick="showAdminLogin()" class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg transition-colors">
+                    Admin
+                </button>
+            </div>
+        </div>
+    </header>
 
-# BhairavX — Paper Trading Exchange (MERN)
-# NOTE: Demo credentials from your request are included. Change in production!
+    <!-- Main Trading Interface -->
+    <div id="tradingInterface" class="container mx-auto p-6">
+        <div class="grid md:grid-cols-2 gap-8">
+            <!-- Available Coins -->
+            <div class="bg-white bg-opacity-10 backdrop-blur-md rounded-xl p-6 shadow-xl">
+                <h2 class="text-2xl font-bold mb-6 text-center">Available Coins</h2>
+                <div id="coinsList" class="space-y-4">
+                    <!-- Coins will be populated by JavaScript -->
+                </div>
+            </div>
 
-PROJECT_DIR="coin-trade"
+            <!-- Trading Panel -->
+            <div class="bg-white bg-opacity-10 backdrop-blur-md rounded-xl p-6 shadow-xl">
+                <h2 class="text-2xl font-bold mb-6 text-center">Trade Coins</h2>
+                <div id="tradingForm" class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium mb-2">Select Coin</label>
+                        <select id="selectedCoin" class="w-full bg-gray-800 border border-gray-600 rounded-lg px-4 py-3 text-white">
+                            <option value="">Choose a coin...</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium mb-2">Action</label>
+                        <div class="flex space-x-4">
+                            <button id="buyBtn" onclick="setTradeAction('buy')" class="flex-1 bg-green-600 hover:bg-green-700 py-3 rounded-lg font-semibold transition-colors">
+                                Buy
+                            </button>
+                            <button id="sellBtn" onclick="setTradeAction('sell')" class="flex-1 bg-red-600 hover:bg-red-700 py-3 rounded-lg font-semibold transition-colors">
+                                Sell
+                            </button>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium mb-2">Amount</label>
+                        <input type="number" id="tradeAmount" min="1" class="w-full bg-gray-800 border border-gray-600 rounded-lg px-4 py-3 text-white" placeholder="Enter amount">
+                    </div>
+                    <button onclick="executeTrade()" class="w-full bg-blue-600 hover:bg-blue-700 py-3 rounded-lg font-semibold transition-colors">
+                        Execute Trade
+                    </button>
+                </div>
+            </div>
+        </div>
 
-mkdir -p "$PROJECT_DIR" && cd "$PROJECT_DIR"
+        <!-- Portfolio -->
+        <div class="mt-8 bg-white bg-opacity-10 backdrop-blur-md rounded-xl p-6 shadow-xl">
+            <h2 class="text-2xl font-bold mb-6 text-center">Your Portfolio</h2>
+            <div id="portfolio" class="grid md:grid-cols-3 gap-4">
+                <!-- Portfolio will be populated by JavaScript -->
+            </div>
+        </div>
+    </div>
 
-########################################
-# backend
-########################################
-mkdir -p backend/src/{models,routes,middleware,utils}
+    <!-- Admin Login Modal -->
+    <div id="adminLoginModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="bg-gray-800 rounded-xl p-8 max-w-md w-full mx-4">
+            <h2 class="text-2xl font-bold mb-6 text-center">Admin Login</h2>
+            <div class="space-y-4">
+                <input type="text" id="adminUsername" placeholder="Username" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-3 text-white">
+                <input type="password" id="adminPassword" placeholder="Password" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-3 text-white">
+                <div class="flex space-x-4">
+                    <button onclick="adminLogin()" class="flex-1 bg-green-600 hover:bg-green-700 py-3 rounded-lg font-semibold transition-colors">
+                        Login
+                    </button>
+                    <button onclick="hideAdminLogin()" class="flex-1 bg-gray-600 hover:bg-gray-700 py-3 rounded-lg font-semibold transition-colors">
+                        Cancel
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
 
-cat > backend/package.json <<'JSON'
-{
-  "name": "bhairavx-backend",
-  "version": "1.0.0",
-  "type": "commonjs",
-  "scripts": {
-    "dev": "nodemon src/server.js",
-    "start": "node src/server.js"
-  },
-  "dependencies": {
-    "bcryptjs": "^2.4.3",
-    "cors": "^2.8.5",
-    "dotenv": "^16.4.5",
-    "express": "^4.19.2",
-    "jsonwebtoken": "^9.0.2",
-    "mongoose": "^8.5.0"
-  },
-  "devDependencies": {
-    "nodemon": "^3.1.0"
-  }
-}
-JSON
+    <!-- Admin Panel -->
+    <div id="adminPanel" class="hidden container mx-auto p-6">
+        <div class="bg-white bg-opacity-10 backdrop-blur-md rounded-xl p-6 shadow-xl">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-2xl font-bold">Admin Dashboard</h2>
+                <button onclick="logoutAdmin()" class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg transition-colors">
+                    Logout
+                </button>
+            </div>
+            
+            <div class="grid md:grid-cols-2 gap-8">
+                <!-- Trading Statistics -->
+                <div class="bg-gray-800 rounded-lg p-6">
+                    <h3 class="text-xl font-bold mb-4">Trading Statistics</h3>
+                    <div id="tradingStats" class="space-y-3">
+                        <!-- Stats will be populated by JavaScript -->
+                    </div>
+                </div>
 
-cat > backend/.env.example <<'ENV'
-PORT=5000
-MONGO_URI=mongodb://localhost:27017/bhairavx
-JWT_SECRET=change-this-in-prod
-ADMIN_USERNAME=7058257708
-ADMIN_PASSWORD=7058257708
-PLATFORM_COIN_SYMBOL=BHC
-PLATFORM_COIN_NAME=BhairavCoin
-SIGNUP_BONUS=50
-CORS_ORIGIN=http://localhost:5173
-ENV
+                <!-- All Transactions -->
+                <div class="bg-gray-800 rounded-lg p-6">
+                    <h3 class="text-xl font-bold mb-4">Recent Transactions</h3>
+                    <div id="allTransactions" class="space-y-2 max-h-64 overflow-y-auto">
+                        <!-- Transactions will be populated by JavaScript -->
+                    </div>
+                </div>
+            </div>
 
-cat > backend/src/server.js <<'JS'
-require('dotenv').config();
-const express = require('express');
-const mongoose = require('mongoose');
-const cors = require('cors');
+            <!-- Coin Management -->
+            <div class="mt-8 bg-gray-800 rounded-lg p-6">
+                <h3 class="text-xl font-bold mb-4">Coin Management</h3>
+                <div class="grid md:grid-cols-4 gap-4 mb-4">
+                    <input type="text" id="newCoinName" placeholder="Coin Name" class="bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white">
+                    <input type="text" id="newCoinSymbol" placeholder="Symbol" class="bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white">
+                    <input type="number" id="newCoinPrice" placeholder="Price" class="bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white">
+                    <button onclick="addNewCoin()" class="bg-blue-600 hover:bg-blue-700 py-2 rounded-lg font-semibold transition-colors">
+                        Add Coin
+                    </button>
+                </div>
+                <div id="coinManagement" class="space-y-2">
+                    <!-- Coin management will be populated by JavaScript -->
+                </div>
+            </div>
+        </div>
+    </div>
 
-const authRoutes = require('./routes/auth');
-const coinRoutes = require('./routes/coins');
-const tradeRoutes = require('./routes/trades');
-const adminRoutes = require('./routes/admin');
-const initAdmin = require('./utils/initAdmin');
+    <script>
+        // Global variables
+        let userBalance = 50;
+        let userPortfolio = {};
+        let currentTradeAction = '';
+        let isAdmin = false;
+        let allTransactions = [];
+        
+        // Initial coins data
+        let availableCoins = {
+            'BTC': { name: 'Bitcoin', price: 45000, change: '+2.5%' },
+            'ETH': { name: 'Ethereum', price: 3200, change: '+1.8%' },
+            'ADA': { name: 'Cardano', price: 1.2, change: '-0.5%' },
+            'DOT': { name: 'Polkadot', price: 25, change: '+3.2%' },
+            'SOL': { name: 'Solana', price: 180, change: '+5.1%' }
+        };
 
-const app = express();
-app.use(express.json());
-app.use(cors({ origin: process.env.CORS_ORIGIN?.split(',') || true, credentials: true }));
+        // Initialize the application
+        function init() {
+            updateBalance();
+            renderCoins();
+            populateCoinSelect();
+            updatePortfolio();
+            updateAdminStats();
+        }
 
-app.get('/health', (_, res) => res.json({ ok: true }));
-app.use('/api/auth', authRoutes);
-app.use('/api/coins', coinRoutes);
-app.use('/api/trades', tradeRoutes);
-app.use('/api/admin', adminRoutes);
+        // Update balance display
+        function updateBalance() {
+            document.getElementById('userBalance').textContent = userBalance;
+        }
 
-(async () => {
-  await mongoose.connect(process.env.MONGO_URI);
-  console.log('Mongo connected');
-  await initAdmin();
-  app.listen(process.env.PORT, () => console.log(`API on :${process.env.PORT}`));
-})();
-JS
+        // Render available coins
+        function renderCoins() {
+            const coinsList = document.getElementById('coinsList');
+            coinsList.innerHTML = '';
+            
+            Object.keys(availableCoins).forEach(symbol => {
+                const coin = availableCoins[symbol];
+                const changeClass = coin.change.startsWith('+') ? 'text-green-400' : 'text-red-400';
+                
+                coinsList.innerHTML += `
+                    <div class="bg-gray-800 rounded-lg p-4 flex justify-between items-center">
+                        <div>
+                            <h3 class="font-bold">${coin.name} (${symbol})</h3>
+                            <p class="text-gray-400">₹${coin.price.toLocaleString()}</p>
+                        </div>
+                        <div class="text-right">
+                            <p class="${changeClass} font-semibold">${coin.change}</p>
+                        </div>
+                    </div>
+                `;
+            });
+        }
 
-cat > backend/src/models/User.js <<'JS'
-const mongoose = require('mongoose');
+        // Populate coin select dropdown
+        function populateCoinSelect() {
+            const select = document.getElementById('selectedCoin');
+            select.innerHTML = '<option value="">Choose a coin...</option>';
+            
+            Object.keys(availableCoins).forEach(symbol => {
+                const coin = availableCoins[symbol];
+                select.innerHTML += `<option value="${symbol}">${coin.name} (${symbol}) - ₹${coin.price}</option>`;
+            });
+        }
 
-const UserSchema = new mongoose.Schema({
-  username: { type: String, required: true, unique: true },
-  passwordHash: { type: String, required: true },
-  role: { type: String, enum: ['admin','trader'], default: 'trader' },
-  balances: { type: Map, of: Number, default: {} }
-}, { timestamps: true });
+        // Set trade action
+        function setTradeAction(action) {
+            currentTradeAction = action;
+            document.getElementById('buyBtn').classList.remove('bg-green-800');
+            document.getElementById('sellBtn').classList.remove('bg-red-800');
+            
+            if (action === 'buy') {
+                document.getElementById('buyBtn').classList.add('bg-green-800');
+            } else {
+                document.getElementById('sellBtn').classList.add('bg-red-800');
+            }
+        }
 
-module.exports = mongoose.model('User', UserSchema);
-JS
+        // Execute trade
+        function executeTrade() {
+            const selectedCoin = document.getElementById('selectedCoin').value;
+            const amount = parseInt(document.getElementById('tradeAmount').value);
+            
+            if (!selectedCoin || !amount || !currentTradeAction) {
+                alert('कृपया सर्व फील्ड भरा!');
+                return;
+            }
 
-cat > backend/src/models/Coin.js <<'JS'
-const mongoose = require('mongoose');
+            const coin = availableCoins[selectedCoin];
+            const totalCost = coin.price * amount;
 
-const CoinSchema = new mongoose.Schema({
-  symbol: { type: String, required: true, unique: true },
-  name: { type: String, required: true },
-  status: { type: String, enum: ['active','disabled'], default: 'active' },
-  price: { type: Number, default: 1 }
-}, { timestamps: true });
+            if (currentTradeAction === 'buy') {
+                if (userBalance >= totalCost) {
+                    userBalance -= totalCost;
+                    userPortfolio[selectedCoin] = (userPortfolio[selectedCoin] || 0) + amount;
+                    
+                    // Add transaction
+                    allTransactions.unshift({
+                        type: 'BUY',
+                        coin: selectedCoin,
+                        amount: amount,
+                        price: coin.price,
+                        total: totalCost,
+                        timestamp: new Date().toLocaleString()
+                    });
+                    
+                    alert(`✅ ${amount} ${selectedCoin} खरेदी यशस्वी!`);
+                } else {
+                    alert('❌ अपुरा बॅलन्स!');
+                    return;
+                }
+            } else if (currentTradeAction === 'sell') {
+                if (userPortfolio[selectedCoin] && userPortfolio[selectedCoin] >= amount) {
+                    userBalance += totalCost;
+                    userPortfolio[selectedCoin] -= amount;
+                    
+                    if (userPortfolio[selectedCoin] === 0) {
+                        delete userPortfolio[selectedCoin];
+                    }
+                    
+                    // Add transaction
+                    allTransactions.unshift({
+                        type: 'SELL',
+                        coin: selectedCoin,
+                        amount: amount,
+                        price: coin.price,
+                        total: totalCost,
+                        timestamp: new Date().toLocaleString()
+                    });
+                    
+                    alert(`✅ ${amount} ${selectedCoin} विक्री यशस्वी!`);
+                } else {
+                    alert('❌ अपुरे कॉइन्स!');
+                    return;
+                }
+            }
 
-module.exports = mongoose.model('Coin', CoinSchema);
-JS
+            // Update displays
+            updateBalance();
+            updatePortfolio();
+            updateAdminStats();
+            
+            // Clear form
+            document.getElementById('selectedCoin').value = '';
+            document.getElementById('tradeAmount').value = '';
+            currentTradeAction = '';
+            document.getElementById('buyBtn').classList.remove('bg-green-800');
+            document.getElementById('sellBtn').classList.remove('bg-red-800');
+        }
 
-cat > backend/src/models/Trade.js <<'JS'
-const mongoose = require('mongoose');
+        // Update portfolio display
+        function updatePortfolio() {
+            const portfolio = document.getElementById('portfolio');
+            portfolio.innerHTML = '';
+            
+            if (Object.keys(userPortfolio).length === 0) {
+                portfolio.innerHTML = '<p class="text-gray-400 text-center col-span-3">तुमचा पोर्टफोलिओ रिकामा आहे</p>';
+                return;
+            }
+            
+            Object.keys(userPortfolio).forEach(symbol => {
+                const amount = userPortfolio[symbol];
+                const coin = availableCoins[symbol];
+                const value = amount * coin.price;
+                
+                portfolio.innerHTML += `
+                    <div class="bg-gray-800 rounded-lg p-4 text-center">
+                        <h3 class="font-bold text-lg">${symbol}</h3>
+                        <p class="text-gray-400">${amount} coins</p>
+                        <p class="text-green-400 font-semibold">₹${value.toLocaleString()}</p>
+                    </div>
+                `;
+            });
+        }
 
-const TradeSchema = new mongoose.Schema({
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  side: { type: String, enum: ['buy','sell'], required: true },
-  symbol: { type: String, required: true },
-  qty: { type: Number, required: true, min: 0.0001 },
-  price: { type: Number, required: true }
-}, { timestamps: true });
+        // Admin functions
+        function showAdminLogin() {
+            document.getElementById('adminLoginModal').classList.remove('hidden');
+            document.getElementById('adminLoginModal').classList.add('flex');
+        }
 
-module.exports = mongoose.model('Trade', TradeSchema);
-JS
+        function hideAdminLogin() {
+            document.getElementById('adminLoginModal').classList.add('hidden');
+            document.getElementById('adminLoginModal').classList.remove('flex');
+            document.getElementById('adminUsername').value = '';
+            document.getElementById('adminPassword').value = '';
+        }
 
-cat > backend/src/middleware/auth.js <<'JS'
-const jwt = require('jsonwebtoken');
+        function adminLogin() {
+            const username = document.getElementById('adminUsername').value;
+            const password = document.getElementById('adminPassword').value;
+            
+            if (username === '7058257708' && password === '7058257708') {
+                isAdmin = true;
+                hideAdminLogin();
+                document.getElementById('tradingInterface').classList.add('hidden');
+                document.getElementById('adminPanel').classList.remove('hidden');
+                updateAdminStats();
+                updateAdminTransactions();
+                updateCoinManagement();
+            } else {
+                alert('चुकीचे लॉगिन तपशील!');
+            }
+        }
 
-module.exports = function auth(req, res, next){
-  const token = req.headers.authorization?.split(' ')[1];
-  if(!token) return res.status(401).json({error:'No token'});
-  try{ const payload = jwt.verify(token, process.env.JWT_SECRET); req.user = payload; next(); }
-  catch(e){ return res.status(401).json({error:'Invalid token'}); }
-};
-JS
+        function logoutAdmin() {
+            isAdmin = false;
+            document.getElementById('adminPanel').classList.add('hidden');
+            document.getElementById('tradingInterface').classList.remove('hidden');
+        }
 
-cat > backend/src/middleware/admin.js <<'JS'
-module.exports = function adminOnly(req, res, next){
-  if(req.user?.role !== 'admin') return res.status(403).json({error:'Admin only'});
-  next();
-};
-JS
+        function updateAdminStats() {
+            if (!isAdmin) return;
+            
+            const stats = document.getElementById('tradingStats');
+            const totalTransactions = allTransactions.length;
+            const totalBuys = allTransactions.filter(t => t.type === 'BUY').length;
+            const totalSells = allTransactions.filter(t => t.type === 'SELL').length;
+            const totalVolume = allTransactions.reduce((sum, t) => sum + t.total, 0);
+            
+            stats.innerHTML = `
+                <div class="flex justify-between"><span>Total Transactions:</span><span class="font-bold">${totalTransactions}</span></div>
+                <div class="flex justify-between"><span>Buy Orders:</span><span class="font-bold text-green-400">${totalBuys}</span></div>
+                <div class="flex justify-between"><span>Sell Orders:</span><span class="font-bold text-red-400">${totalSells}</span></div>
+                <div class="flex justify-between"><span>Total Volume:</span><span class="font-bold">₹${totalVolume.toLocaleString()}</span></div>
+                <div class="flex justify-between"><span>User Balance:</span><span class="font-bold">${userBalance} coins</span></div>
+            `;
+        }
 
-cat > backend/src/routes/auth.js <<'JS'
-const router = require('express').Router();
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-const User = require('../models/User');
+        function updateAdminTransactions() {
+            if (!isAdmin) return;
+            
+            const transactions = document.getElementById('allTransactions');
+            transactions.innerHTML = '';
+            
+            if (allTransactions.length === 0) {
+                transactions.innerHTML = '<p class="text-gray-400">No transactions yet</p>';
+                return;
+            }
+            
+            allTransactions.slice(0, 10).forEach(transaction => {
+                const typeClass = transaction.type === 'BUY' ? 'text-green-400' : 'text-red-400';
+                transactions.innerHTML += `
+                    <div class="bg-gray-700 rounded p-3 text-sm">
+                        <div class="flex justify-between">
+                            <span class="${typeClass} font-bold">${transaction.type}</span>
+                            <span>${transaction.timestamp}</span>
+                        </div>
+                        <div>${transaction.amount} ${transaction.coin} @ ₹${transaction.price} = ₹${transaction.total.toLocaleString()}</div>
+                    </div>
+                `;
+            });
+        }
 
-router.post('/login', async (req,res) => {
-  const { username, password } = req.body;
-  const user = await User.findOne({ username });
-  if(!user) return res.status(401).json({ error:'Invalid credentials' });
-  const ok = await bcrypt.compare(password, user.passwordHash);
-  if(!ok) return res.status(401).json({ error:'Invalid credentials' });
-  const token = jwt.sign({ id: user._id, role: user.role, username: user.username }, process.env.JWT_SECRET, { expiresIn: '2d' });
-  res.json({ token, role: user.role, username: user.username });
-});
+        function updateCoinManagement() {
+            if (!isAdmin) return;
+            
+            const management = document.getElementById('coinManagement');
+            management.innerHTML = '';
+            
+            Object.keys(availableCoins).forEach(symbol => {
+                const coin = availableCoins[symbol];
+                management.innerHTML += `
+                    <div class="bg-gray-700 rounded p-3 flex justify-between items-center">
+                        <div>
+                            <span class="font-bold">${coin.name} (${symbol})</span>
+                            <span class="text-gray-400 ml-2">₹${coin.price}</span>
+                        </div>
+                        <button onclick="removeCoin('${symbol}')" class="bg-red-600 hover:bg-red-700 px-3 py-1 rounded text-sm transition-colors">
+                            Remove
+                        </button>
+                    </div>
+                `;
+            });
+        }
 
-router.post('/signup', async (req,res) => {
-  const { username, password } = req.body;
-  const exists = await User.findOne({ username });
-  if(exists) return res.status(409).json({ error:'Username taken' });
-  const passwordHash = await bcrypt.hash(password, 10);
-  const u = await User.create({ username, passwordHash, role:'trader' });
-  const sym = process.env.PLATFORM_COIN_SYMBOL || 'BHC';
-  u.balances.set(sym, (u.balances.get(sym) || 0) + Number(process.env.SIGNUP_BONUS || 50));
-  await u.save();
-  res.status(201).json({ ok:true });
-});
+        function addNewCoin() {
+            const name = document.getElementById('newCoinName').value;
+            const symbol = document.getElementById('newCoinSymbol').value.toUpperCase();
+            const price = parseFloat(document.getElementById('newCoinPrice').value);
+            
+            if (!name || !symbol || !price) {
+                alert('कृपया सर्व फील्ड भरा!');
+                return;
+            }
+            
+            if (availableCoins[symbol]) {
+                alert('हे कॉइन आधीच अस्तित्वात आहे!');
+                return;
+            }
+            
+            availableCoins[symbol] = {
+                name: name,
+                price: price,
+                change: '+0.0%'
+            };
+            
+            // Clear form
+            document.getElementById('newCoinName').value = '';
+            document.getElementById('newCoinSymbol').value = '';
+            document.getElementById('newCoinPrice').value = '';
+            
+            // Update displays
+            renderCoins();
+            populateCoinSelect();
+            updateCoinManagement();
+            
+            alert(`✅ ${name} (${symbol}) यशस्वीरित्या जोडले!`);
+        }
 
-module.exports = router;
-JS
+        function removeCoin(symbol) {
+            if (confirm(`${symbol} कॉइन काढायचे?`)) {
+                delete availableCoins[symbol];
+                renderCoins();
+                populateCoinSelect();
+                updateCoinManagement();
+                alert(`✅ ${symbol} काढले!`);
+            }
+        }
 
-cat > backend/src/routes/coins.js <<'JS'
-const router = require('express').Router();
-const Coin = require('../models/Coin');
-const auth = require('../middleware/auth');
-const adminOnly = require('../middleware/admin');
-
-router.get('/', async (_req,res) => {
-  const items = await Coin.find({});
-  res.json(items);
-});
-
-router.post('/', auth, adminOnly, async (req,res) => {
-  const { symbol, name, price, status } = req.body;
-  const up = await Coin.findOneAndUpdate(
-    { symbol },
-    { symbol, name, price, status },
-    { upsert:true, new:true }
-  );
-  res.status(201).json(up);
-});
-
-router.delete('/:symbol', auth, adminOnly, async (req,res) => {
-  await Coin.findOneAndDelete({ symbol: req.params.symbol });
-  res.json({ ok:true });
-});
-
-module.exports = router;
-JS
-
-cat > backend/src/routes/trades.js <<'JS'
-const router = require('express').Router();
-const Trade = require('../models/Trade');
-const Coin = require('../models/Coin');
-const User = require('../models/User');
-const auth = require('../middleware/auth');
-
-router.get('/', auth, async (req,res) => {
-  const items = await Trade.find({ userId: req.user.id }).sort({ createdAt:-1 });
-  res.json(items);
-});
-
-router.post('/', auth, async (req,res) => {
-  const { side, symbol, qty } = req.body;
-  const coin = await Coin.findOne({ symbol, status:'active' });
-  if(!coin) return res.status(404).json({ error:'Coin not found/active' });
-  const price = coin.price;
-  const user = await User.findById(req.user.id);
-
-  const base = process.env.PLATFORM_COIN_SYMBOL || 'BHC';
-  const balBase = user.balances.get(base) || 0;
-  const balCoin = user.balances.get(symbol) || 0;
-
-  if(side === 'buy'){
-    const cost = qty * price;
-    if(balBase < cost) return res.status(400).json({ error:'Insufficient base balance' });
-    user.balances.set(base, balBase - cost);
-    user.balances.set(symbol, balCoin + qty);
-  } else if(side === 'sell'){
-    if(balCoin < qty) return res.status(400).json({ error:'Insufficient coin balance' });
-    user.balances.set(symbol, balCoin - qty);
-    user.balances.set(base, balBase + qty * price);
-  } else {
-    return res.status(400).json({ error:'bad side' });
-  }
-  await user.save();
-  const t = await Trade.create({ userId: user._id, side, symbol, qty, price });
-  res.status(201).json(t);
-});
-
-module.exports = router;
-JS
-
-cat > backend/src/routes/admin.js <<'JS'
-const router = require('express').Router();
-const auth = require('../middleware/auth');
-const adminOnly = require('../middleware/admin');
-const User = require('../models/User');
-const Coin = require('../models/Coin');
-const Trade = require('../models/Trade');
-
-router.use(auth, adminOnly);
-
-router.get('/stats', async (_req,res) => {
-  const users = await User.countDocuments({});
-  const coins = await Coin.countDocuments({});
-  const trades = await Trade.countDocuments({});
-  const topCoins = await Trade.aggregate([
-    { $group: { _id:'$symbol', volume: { $sum:'$qty' }, count:{ $sum:1 } } },
-    { $sort: { volume:-1 } }, { $limit: 5 }
-  ]);
-  res.json({ users, coins, trades, topCoins });
-});
-
-router.get('/balances', async (_req,res) => {
-  const result = await User.find({}, 'username balances role');
-  res.json(result);
-});
-
-module.exports = router;
-JS
-
-cat > backend/src/utils/initAdmin.js <<'JS'
-const bcrypt = require('bcryptjs');
-const User = require('../models/User');
-
-module.exports = async function initAdmin(){
-  const username = process.env.ADMIN_USERNAME;
-  const password = process.env.ADMIN_PASSWORD;
-  if(!username || !password) return;
-  let u = await User.findOne({ username });
-  if(!u){
-    const hash = await bcrypt.hash(password, 10);
-    u = await User.create({ username, passwordHash: hash, role:'admin', balances:{} });
-    console.log('Admin created');
-  }
-  const sym = process.env.PLATFORM_COIN_SYMBOL || 'BHC';
-  if(!u.balances.get(sym)){
-    u.balances.set(sym, Number(process.env.SIGNUP_BONUS || 50));
-    await u.save();
-  }
-};
-JS
-
-########################################
-# frontend
-########################################
-mkdir -p frontend/src/{pages,components}
-
-cat > frontend/package.json <<'JSON'
-{
-  "name": "bhairavx-frontend",
-  "version": "1.0.0",
-  "private": true,
-  "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
-  },
-  "dependencies": {
-    "axios": "^1.7.2",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "react-router-dom": "^6.26.2"
-  },
-  "devDependencies": {
-    "@vitejs/plugin-react": "^4.3.1",
-    "autoprefixer": "^10.4.20",
-    "postcss": "^8.4.41",
-    "tailwindcss": "^3.4.10",
-    "vite": "^5.4.6"
-  }
-}
-JSON
-
-cat > frontend/tailwind.config.js <<'JS'
-export default {
-  content: ["./index.html", "./src/**/*.{js,jsx}"],
-  theme: { extend: {} },
-  plugins: [],
-};
-JS
-
-cat > frontend/postcss.config.js <<'JS'
-export default { plugins: { tailwindcss: {}, autoprefixer: {} } };
-JS
-
-cat > frontend/index.html <<'HTML'
-<!doctype html>
-<html>
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>BhairavX</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
+        // Initialize the application
+        init();
+    </script>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'989638d2417b7e72',t:'MTc1OTU5NzA4NC4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
-HTML
-
-cat > frontend/src/main.jsx <<'JS'
-import React from 'react'
-import { createRoot } from 'react-dom/client'
-import { BrowserRouter } from 'react-router-dom'
-import App from './App'
-import './index.css'
-
-createRoot(document.getElementById('root')).render(
-  <BrowserRouter>
-    <App />
-  </BrowserRouter>
-)
-JS
-
-cat > frontend/src/index.css <<'CSS'
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-CSS
-
-cat > frontend/src/App.jsx <<'JS'
-import React, { useEffect, useState } from 'react';
-import { Routes, Route, useNavigate } from 'react-router-dom';
-import Login from './pages/Login';
-import Dashboard from './pages/Dashboard';
-import Admin from './pages/Admin';
-import Trades from './pages/Trades';
-import Nav from './components/Nav';
-
-export default function App(){
-  const [token,setToken] = useState(localStorage.getItem('token'));
-  const [role,setRole] = useState(localStorage.getItem('role'));
-  const navigate = useNavigate();
-
-  useEffect(()=>{ if(!token) navigate('/login'); },[token]);
-
-  const onLogin = (t,r) => { localStorage.setItem('token',t); localStorage.setItem('role',r); setToken(t); setRole(r); navigate('/'); };
-  const onLogout = () => { localStorage.clear(); setToken(null); setRole(null); navigate('/login'); };
-
-  return (
-    <div className="min-h-screen bg-gray-50">
-      {token && <Nav role={role} onLogout={onLogout} />}
-      <div className="max-w-6xl mx-auto p-4">
-        <Routes>
-          <Route path="/login" element={<Login onLogin={onLogin} />} />
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/trades" element={<Trades />} />
-          <Route path="/admin" element={<Admin />} />
-        </Routes>
-      </div>
-    </div>
-  );
-}
-JS
-
-cat > frontend/src/components/Nav.jsx <<'JS'
-import React from 'react';
-import { Link } from 'react-router-dom';
-
-export default function Nav({ role, onLogout }){
-  return (
-    <nav className="bg-white shadow">
-      <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Link to="/" className="font-bold text-xl">BhairavX</Link>
-          <Link to="/" className="text-sm">Dashboard</Link>
-          <Link to="/trades" className="text-sm">My Trades</Link>
-          {role==='admin' && <Link to="/admin" className="text-sm">Admin</Link>}
-        </div>
-        <button onClick={onLogout} className="text-sm text-red-600">Logout</button>
-      </div>
-    </nav>
-  );
-}
-JS
-
-cat > frontend/src/components/CoinTable.jsx <<'JS'
-import React from 'react';
-
-export default function CoinTable({ coins, onSelect }){
-  return (
-    <table className="w-full bg-white shadow rounded">
-      <thead>
-        <tr className="text-left">
-          <th className="p-3">Symbol</th>
-          <th className="p-3">Name</th>
-          <th className="p-3">Price</th>
-          <th className="p-3">Status</th>
-          <th className="p-3">Action</th>
-        </tr>
-      </thead>
-      <tbody>
-        {coins.map(c => (
-          <tr key={c.symbol} className="border-t">
-            <td className="p-3 font-mono">{c.symbol}</td>
-            <td className="p-3">{c.name}</td>
-            <td className="p-3">{c.price}</td>
-            <td className="p-3">
-              <span className={`px-2 py-1 rounded text-xs ${c.status==='active'?'bg-green-100 text-green-700':'bg-gray-100 text-gray-600'}`}>{c.status}</span>
-            </td>
-            <td className="p-3">
-              <button onClick={()=>onSelect(c)} className="text-blue-600 text-sm">Trade</button>
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-}
-JS
-
-cat > frontend/src/components/TradeForm.jsx <<'JS'
-import React, { useState } from 'react';
-import axios from 'axios';
-
-const API = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
-
-export default function TradeForm({ selected, onDone }){
-  const [side,setSide] = useState('buy');
-  const [qty,setQty] = useState(1);
-  const token = localStorage.getItem('token');
-
-  const submit = async () => {
-    await axios.post(`${API}/trades`, { side, symbol:selected.symbol, qty:Number(qty) }, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    onDone && onDone();
-  };
-
-  return (
-    <div className="bg-white shadow rounded p-4">
-      <div className="mb-2 font-semibold">{selected.symbol} @ {selected.price}</div>
-      <div className="flex gap-2 mb-3">
-        <button onClick={()=>setSide('buy')} className={`px-3 py-1 rounded ${side==='buy'?'bg-green-600 text-white':'bg-gray-200'}`}>Buy</button>
-        <button onClick={()=>setSide('sell')} className={`px-3 py-1 rounded ${side==='sell'?'bg-red-600 text-white':'bg-gray-200'}`}>Sell</button>
-      </div>
-      <input type="number" min="0" step="0.0001" value={qty} onChange={e=>setQty(e.target.value)} className="border p-2 rounded w-full mb-3" />
-      <button onClick={submit} className="px-4 py-2 rounded bg-blue-600 text-white w-full">Place {side}</button>
-    </div>
-  );
-}
-JS
-
-cat > frontend/src/components/StatsCards.jsx <<'JS'
-import React from 'react';
-
-export default function StatsCards({ stats }){
-  const items = [
-    { label:'Users', value: stats?.users ?? '-' },
-    { label:'Coins', value: stats?.coins ?? '-' },
-    { label:'Trades', value: stats?.trades ?? '-' },
-  ];
-  return (
-    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-      {items.map(i => (
-        <div key={i.label} className="bg-white shadow rounded p-4">
-          <div className="text-sm text-gray-500">{i.label}</div>
-          <div className="text-2xl font-bold">{i.value}</div>
-        </div>
-      ))}
-    </div>
-  );
-}
-JS
-
-cat > frontend/src/pages/Login.jsx <<'JS'
-import React, { useState } from 'react';
-import axios from 'axios';
-
-const API = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
-
-export default function Login({ onLogin }){
-  const [username,setUsername] = useState('7058257708');
-  const [password,setPassword] = useState('7058257708');
-  const [mode,setMode] = useState('login');
-  const [err,setErr] = useState('');
-
-  const submit = async () => {
-    try{
-      setErr('');
-      if(mode==='login'){
-        const r = await axios.post(`${API}/auth/login`, { username, password });
-        onLogin(r.data.token, r.data.role);
-      } else {
-        await axios.post(`${API}/auth/signup`, { username, password });
-        setMode('login');
-      }
-    }catch(e){ setErr(e.response?.data?.error || 'Error'); }
-  };
-
-  return (
-    <div className="max-w-sm mx-auto mt-24 bg-white shadow rounded p-6">
-      <h1 className="text-xl font-bold mb-4">{mode==='login'?'Login':'Sign up'}</h1>
-      <input className="border p-2 rounded w-full mb-2" value={username} onChange={e=>setUsername(e.target.value)} placeholder="username" />
-      <input type="password" className="border p-2 rounded w-full mb-2" value={password} onChange={e=>setPassword(e.target.value)} placeholder="password" />
-      {err && <div className="text-red-600 text-sm mb-2">{err}</div>}
-      <button onClick={submit} className="bg-blue-600 text-white w-full py-2 rounded mb-2">{mode==='login'?'Login':'Create account'}</button>
-      <button onClick={()=>setMode(mode==='login'?'signup':'login')} className="text-sm text-gray-600 underline">
-        {mode==='login'?'Need an account? Sign up':'Have an account? Login'}
-      </button>
-    </div>
-  );
-}
-JS
-
-cat > frontend/src/pages/Dashboard.jsx <<'JS'
-import React, { useEffect, useState } from 'react';
-import axios from 'axios';
-import CoinTable from '../components/CoinTable';
-import TradeForm from '../components/TradeForm';
-
-const API = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
-
-export default function Dashboard(){
-  const [coins,setCoins] = useState([]);
-  const [selected,setSelected] = useState(null);
-
-  const load = async () => {
-    const r = await axios.get(`${API}/coins`);
-    setCoins(r.data);
-  };
-
-  useEffect(()=>{ load(); },[]);
-
-  return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-      <div className="md:col-span-2">
-        <CoinTable coins={coins} onSelect={setSelected} />
-      </div>
-      <div>
-        {selected ? <TradeForm selected={selected} onDone={()=>{ setSelected(null); load(); }} />
-                  : <div className="bg-white p-4 rounded shadow text-gray-500">Select a coin to trade</div>}
-      </div>
-    </div>
-  );
-}
-JS
-
-cat > frontend/src/pages/Trades.jsx <<'JS'
-import React, { useEffect, useState } from 'react';
-import axios from 'axios';
-
-const API = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
-
-export default function Trades(){
-  const [items,setItems] = useState([]);
-  const token = localStorage.getItem('token');
-
-  const load = async () => {
-    const r = await axios.get(`${API}/trades`, { headers:{ Authorization:`Bearer ${token}` }});
-    setItems(r.data);
-  };
-
-  useEffect(()=>{ load(); },[]);
-
-  return (
-    <div className="bg-white shadow rounded p-4">
-      <h2 className="font-bold text-lg mb-3">My Trades</h2>
-      <table className="w-full">
-        <thead>
-          <tr className="text-left">
-            <th className="p-2">Time</th>
-            <th className="p-2">Side</th>
-            <th className="p-2">Symbol</th>
-            <th className="p-2">Qty</th>
-            <th className="p-2">Price</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map(t=> (
-            <tr key={t._id} className="border-t">
-              <td className="p-2 text-sm text-gray-600">{new Date(t.createdAt).toLocaleString()}</td>
-              <td className="p-2 capitalize">{t.side}</td>
-              <td className="p-2">{t.symbol}</td>
-              <td className="p-2">{t.qty}</td>
-              <td className="p-2">{t.price}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-JS
-
-########################################
-# README
-########################################
-cat > README.md <<'MD'
-# BhairavX — Paper Trading Exchange
-
-**Admin login (demo only):** 7058257708 / 7058257708
-
-## Run locally
-```bash
-# terminal 1
-cd backend && cp .env.example .env && npm i && npm run dev
-# terminal 2
-cd frontend && npm i && npm run dev
-```
-
-Set `VITE_API_URL` in frontend to your backend `/api` if deploying.
-
-### Notes
-- Prices are static; update via Admin panel.
-- Trades adjust balances in base coin (BHC) for demo.
-- Change credentials, JWT secret, enable 2FA before production.
-MD
-
-########################################
-# Final message
-########################################
-cat <<'MSG'
-
-✅ Project scaffolded in ./coin-trade
-Next steps:
-1) Start MongoDB locally (e.g. `docker run -p 27017:27017 mongo:7`)
-2) In one terminal: `cd coin-trade/backend && cp .env.example .env && npm i && npm run dev`
-3) In another: `cd coin-trade/frontend && npm i && npm run dev`
-4) Open http://localhost:5173 and login with admin demo credentials.
-
-Security: Replace demo creds + JWT_SECRET for real use.
-MSG
