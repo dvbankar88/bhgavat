@@ -1,0 +1,673 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# BhairavX — Paper Trading Exchange (MERN)
+# NOTE: Demo credentials from your request are included. Change in production!
+
+PROJECT_DIR="coin-trade"
+
+mkdir -p "$PROJECT_DIR" && cd "$PROJECT_DIR"
+
+########################################
+# backend
+########################################
+mkdir -p backend/src/{models,routes,middleware,utils}
+
+cat > backend/package.json <<'JSON'
+{
+  "name": "bhairavx-backend",
+  "version": "1.0.0",
+  "type": "commonjs",
+  "scripts": {
+    "dev": "nodemon src/server.js",
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.5.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  }
+}
+JSON
+
+cat > backend/.env.example <<'ENV'
+PORT=5000
+MONGO_URI=mongodb://localhost:27017/bhairavx
+JWT_SECRET=change-this-in-prod
+ADMIN_USERNAME=7058257708
+ADMIN_PASSWORD=7058257708
+PLATFORM_COIN_SYMBOL=BHC
+PLATFORM_COIN_NAME=BhairavCoin
+SIGNUP_BONUS=50
+CORS_ORIGIN=http://localhost:5173
+ENV
+
+cat > backend/src/server.js <<'JS'
+require('dotenv').config();
+const express = require('express');
+const mongoose = require('mongoose');
+const cors = require('cors');
+
+const authRoutes = require('./routes/auth');
+const coinRoutes = require('./routes/coins');
+const tradeRoutes = require('./routes/trades');
+const adminRoutes = require('./routes/admin');
+const initAdmin = require('./utils/initAdmin');
+
+const app = express();
+app.use(express.json());
+app.use(cors({ origin: process.env.CORS_ORIGIN?.split(',') || true, credentials: true }));
+
+app.get('/health', (_, res) => res.json({ ok: true }));
+app.use('/api/auth', authRoutes);
+app.use('/api/coins', coinRoutes);
+app.use('/api/trades', tradeRoutes);
+app.use('/api/admin', adminRoutes);
+
+(async () => {
+  await mongoose.connect(process.env.MONGO_URI);
+  console.log('Mongo connected');
+  await initAdmin();
+  app.listen(process.env.PORT, () => console.log(`API on :${process.env.PORT}`));
+})();
+JS
+
+cat > backend/src/models/User.js <<'JS'
+const mongoose = require('mongoose');
+
+const UserSchema = new mongoose.Schema({
+  username: { type: String, required: true, unique: true },
+  passwordHash: { type: String, required: true },
+  role: { type: String, enum: ['admin','trader'], default: 'trader' },
+  balances: { type: Map, of: Number, default: {} }
+}, { timestamps: true });
+
+module.exports = mongoose.model('User', UserSchema);
+JS
+
+cat > backend/src/models/Coin.js <<'JS'
+const mongoose = require('mongoose');
+
+const CoinSchema = new mongoose.Schema({
+  symbol: { type: String, required: true, unique: true },
+  name: { type: String, required: true },
+  status: { type: String, enum: ['active','disabled'], default: 'active' },
+  price: { type: Number, default: 1 }
+}, { timestamps: true });
+
+module.exports = mongoose.model('Coin', CoinSchema);
+JS
+
+cat > backend/src/models/Trade.js <<'JS'
+const mongoose = require('mongoose');
+
+const TradeSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  side: { type: String, enum: ['buy','sell'], required: true },
+  symbol: { type: String, required: true },
+  qty: { type: Number, required: true, min: 0.0001 },
+  price: { type: Number, required: true }
+}, { timestamps: true });
+
+module.exports = mongoose.model('Trade', TradeSchema);
+JS
+
+cat > backend/src/middleware/auth.js <<'JS'
+const jwt = require('jsonwebtoken');
+
+module.exports = function auth(req, res, next){
+  const token = req.headers.authorization?.split(' ')[1];
+  if(!token) return res.status(401).json({error:'No token'});
+  try{ const payload = jwt.verify(token, process.env.JWT_SECRET); req.user = payload; next(); }
+  catch(e){ return res.status(401).json({error:'Invalid token'}); }
+};
+JS
+
+cat > backend/src/middleware/admin.js <<'JS'
+module.exports = function adminOnly(req, res, next){
+  if(req.user?.role !== 'admin') return res.status(403).json({error:'Admin only'});
+  next();
+};
+JS
+
+cat > backend/src/routes/auth.js <<'JS'
+const router = require('express').Router();
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const User = require('../models/User');
+
+router.post('/login', async (req,res) => {
+  const { username, password } = req.body;
+  const user = await User.findOne({ username });
+  if(!user) return res.status(401).json({ error:'Invalid credentials' });
+  const ok = await bcrypt.compare(password, user.passwordHash);
+  if(!ok) return res.status(401).json({ error:'Invalid credentials' });
+  const token = jwt.sign({ id: user._id, role: user.role, username: user.username }, process.env.JWT_SECRET, { expiresIn: '2d' });
+  res.json({ token, role: user.role, username: user.username });
+});
+
+router.post('/signup', async (req,res) => {
+  const { username, password } = req.body;
+  const exists = await User.findOne({ username });
+  if(exists) return res.status(409).json({ error:'Username taken' });
+  const passwordHash = await bcrypt.hash(password, 10);
+  const u = await User.create({ username, passwordHash, role:'trader' });
+  const sym = process.env.PLATFORM_COIN_SYMBOL || 'BHC';
+  u.balances.set(sym, (u.balances.get(sym) || 0) + Number(process.env.SIGNUP_BONUS || 50));
+  await u.save();
+  res.status(201).json({ ok:true });
+});
+
+module.exports = router;
+JS
+
+cat > backend/src/routes/coins.js <<'JS'
+const router = require('express').Router();
+const Coin = require('../models/Coin');
+const auth = require('../middleware/auth');
+const adminOnly = require('../middleware/admin');
+
+router.get('/', async (_req,res) => {
+  const items = await Coin.find({});
+  res.json(items);
+});
+
+router.post('/', auth, adminOnly, async (req,res) => {
+  const { symbol, name, price, status } = req.body;
+  const up = await Coin.findOneAndUpdate(
+    { symbol },
+    { symbol, name, price, status },
+    { upsert:true, new:true }
+  );
+  res.status(201).json(up);
+});
+
+router.delete('/:symbol', auth, adminOnly, async (req,res) => {
+  await Coin.findOneAndDelete({ symbol: req.params.symbol });
+  res.json({ ok:true });
+});
+
+module.exports = router;
+JS
+
+cat > backend/src/routes/trades.js <<'JS'
+const router = require('express').Router();
+const Trade = require('../models/Trade');
+const Coin = require('../models/Coin');
+const User = require('../models/User');
+const auth = require('../middleware/auth');
+
+router.get('/', auth, async (req,res) => {
+  const items = await Trade.find({ userId: req.user.id }).sort({ createdAt:-1 });
+  res.json(items);
+});
+
+router.post('/', auth, async (req,res) => {
+  const { side, symbol, qty } = req.body;
+  const coin = await Coin.findOne({ symbol, status:'active' });
+  if(!coin) return res.status(404).json({ error:'Coin not found/active' });
+  const price = coin.price;
+  const user = await User.findById(req.user.id);
+
+  const base = process.env.PLATFORM_COIN_SYMBOL || 'BHC';
+  const balBase = user.balances.get(base) || 0;
+  const balCoin = user.balances.get(symbol) || 0;
+
+  if(side === 'buy'){
+    const cost = qty * price;
+    if(balBase < cost) return res.status(400).json({ error:'Insufficient base balance' });
+    user.balances.set(base, balBase - cost);
+    user.balances.set(symbol, balCoin + qty);
+  } else if(side === 'sell'){
+    if(balCoin < qty) return res.status(400).json({ error:'Insufficient coin balance' });
+    user.balances.set(symbol, balCoin - qty);
+    user.balances.set(base, balBase + qty * price);
+  } else {
+    return res.status(400).json({ error:'bad side' });
+  }
+  await user.save();
+  const t = await Trade.create({ userId: user._id, side, symbol, qty, price });
+  res.status(201).json(t);
+});
+
+module.exports = router;
+JS
+
+cat > backend/src/routes/admin.js <<'JS'
+const router = require('express').Router();
+const auth = require('../middleware/auth');
+const adminOnly = require('../middleware/admin');
+const User = require('../models/User');
+const Coin = require('../models/Coin');
+const Trade = require('../models/Trade');
+
+router.use(auth, adminOnly);
+
+router.get('/stats', async (_req,res) => {
+  const users = await User.countDocuments({});
+  const coins = await Coin.countDocuments({});
+  const trades = await Trade.countDocuments({});
+  const topCoins = await Trade.aggregate([
+    { $group: { _id:'$symbol', volume: { $sum:'$qty' }, count:{ $sum:1 } } },
+    { $sort: { volume:-1 } }, { $limit: 5 }
+  ]);
+  res.json({ users, coins, trades, topCoins });
+});
+
+router.get('/balances', async (_req,res) => {
+  const result = await User.find({}, 'username balances role');
+  res.json(result);
+});
+
+module.exports = router;
+JS
+
+cat > backend/src/utils/initAdmin.js <<'JS'
+const bcrypt = require('bcryptjs');
+const User = require('../models/User');
+
+module.exports = async function initAdmin(){
+  const username = process.env.ADMIN_USERNAME;
+  const password = process.env.ADMIN_PASSWORD;
+  if(!username || !password) return;
+  let u = await User.findOne({ username });
+  if(!u){
+    const hash = await bcrypt.hash(password, 10);
+    u = await User.create({ username, passwordHash: hash, role:'admin', balances:{} });
+    console.log('Admin created');
+  }
+  const sym = process.env.PLATFORM_COIN_SYMBOL || 'BHC';
+  if(!u.balances.get(sym)){
+    u.balances.set(sym, Number(process.env.SIGNUP_BONUS || 50));
+    await u.save();
+  }
+};
+JS
+
+########################################
+# frontend
+########################################
+mkdir -p frontend/src/{pages,components}
+
+cat > frontend/package.json <<'JSON'
+{
+  "name": "bhairavx-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "axios": "^1.7.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.26.2"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.41",
+    "tailwindcss": "^3.4.10",
+    "vite": "^5.4.6"
+  }
+}
+JSON
+
+cat > frontend/tailwind.config.js <<'JS'
+export default {
+  content: ["./index.html", "./src/**/*.{js,jsx}"],
+  theme: { extend: {} },
+  plugins: [],
+};
+JS
+
+cat > frontend/postcss.config.js <<'JS'
+export default { plugins: { tailwindcss: {}, autoprefixer: {} } };
+JS
+
+cat > frontend/index.html <<'HTML'
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BhairavX</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
+HTML
+
+cat > frontend/src/main.jsx <<'JS'
+import React from 'react'
+import { createRoot } from 'react-dom/client'
+import { BrowserRouter } from 'react-router-dom'
+import App from './App'
+import './index.css'
+
+createRoot(document.getElementById('root')).render(
+  <BrowserRouter>
+    <App />
+  </BrowserRouter>
+)
+JS
+
+cat > frontend/src/index.css <<'CSS'
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+CSS
+
+cat > frontend/src/App.jsx <<'JS'
+import React, { useEffect, useState } from 'react';
+import { Routes, Route, useNavigate } from 'react-router-dom';
+import Login from './pages/Login';
+import Dashboard from './pages/Dashboard';
+import Admin from './pages/Admin';
+import Trades from './pages/Trades';
+import Nav from './components/Nav';
+
+export default function App(){
+  const [token,setToken] = useState(localStorage.getItem('token'));
+  const [role,setRole] = useState(localStorage.getItem('role'));
+  const navigate = useNavigate();
+
+  useEffect(()=>{ if(!token) navigate('/login'); },[token]);
+
+  const onLogin = (t,r) => { localStorage.setItem('token',t); localStorage.setItem('role',r); setToken(t); setRole(r); navigate('/'); };
+  const onLogout = () => { localStorage.clear(); setToken(null); setRole(null); navigate('/login'); };
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {token && <Nav role={role} onLogout={onLogout} />}
+      <div className="max-w-6xl mx-auto p-4">
+        <Routes>
+          <Route path="/login" element={<Login onLogin={onLogin} />} />
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/trades" element={<Trades />} />
+          <Route path="/admin" element={<Admin />} />
+        </Routes>
+      </div>
+    </div>
+  );
+}
+JS
+
+cat > frontend/src/components/Nav.jsx <<'JS'
+import React from 'react';
+import { Link } from 'react-router-dom';
+
+export default function Nav({ role, onLogout }){
+  return (
+    <nav className="bg-white shadow">
+      <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <Link to="/" className="font-bold text-xl">BhairavX</Link>
+          <Link to="/" className="text-sm">Dashboard</Link>
+          <Link to="/trades" className="text-sm">My Trades</Link>
+          {role==='admin' && <Link to="/admin" className="text-sm">Admin</Link>}
+        </div>
+        <button onClick={onLogout} className="text-sm text-red-600">Logout</button>
+      </div>
+    </nav>
+  );
+}
+JS
+
+cat > frontend/src/components/CoinTable.jsx <<'JS'
+import React from 'react';
+
+export default function CoinTable({ coins, onSelect }){
+  return (
+    <table className="w-full bg-white shadow rounded">
+      <thead>
+        <tr className="text-left">
+          <th className="p-3">Symbol</th>
+          <th className="p-3">Name</th>
+          <th className="p-3">Price</th>
+          <th className="p-3">Status</th>
+          <th className="p-3">Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {coins.map(c => (
+          <tr key={c.symbol} className="border-t">
+            <td className="p-3 font-mono">{c.symbol}</td>
+            <td className="p-3">{c.name}</td>
+            <td className="p-3">{c.price}</td>
+            <td className="p-3">
+              <span className={`px-2 py-1 rounded text-xs ${c.status==='active'?'bg-green-100 text-green-700':'bg-gray-100 text-gray-600'}`}>{c.status}</span>
+            </td>
+            <td className="p-3">
+              <button onClick={()=>onSelect(c)} className="text-blue-600 text-sm">Trade</button>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+JS
+
+cat > frontend/src/components/TradeForm.jsx <<'JS'
+import React, { useState } from 'react';
+import axios from 'axios';
+
+const API = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+
+export default function TradeForm({ selected, onDone }){
+  const [side,setSide] = useState('buy');
+  const [qty,setQty] = useState(1);
+  const token = localStorage.getItem('token');
+
+  const submit = async () => {
+    await axios.post(`${API}/trades`, { side, symbol:selected.symbol, qty:Number(qty) }, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    onDone && onDone();
+  };
+
+  return (
+    <div className="bg-white shadow rounded p-4">
+      <div className="mb-2 font-semibold">{selected.symbol} @ {selected.price}</div>
+      <div className="flex gap-2 mb-3">
+        <button onClick={()=>setSide('buy')} className={`px-3 py-1 rounded ${side==='buy'?'bg-green-600 text-white':'bg-gray-200'}`}>Buy</button>
+        <button onClick={()=>setSide('sell')} className={`px-3 py-1 rounded ${side==='sell'?'bg-red-600 text-white':'bg-gray-200'}`}>Sell</button>
+      </div>
+      <input type="number" min="0" step="0.0001" value={qty} onChange={e=>setQty(e.target.value)} className="border p-2 rounded w-full mb-3" />
+      <button onClick={submit} className="px-4 py-2 rounded bg-blue-600 text-white w-full">Place {side}</button>
+    </div>
+  );
+}
+JS
+
+cat > frontend/src/components/StatsCards.jsx <<'JS'
+import React from 'react';
+
+export default function StatsCards({ stats }){
+  const items = [
+    { label:'Users', value: stats?.users ?? '-' },
+    { label:'Coins', value: stats?.coins ?? '-' },
+    { label:'Trades', value: stats?.trades ?? '-' },
+  ];
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      {items.map(i => (
+        <div key={i.label} className="bg-white shadow rounded p-4">
+          <div className="text-sm text-gray-500">{i.label}</div>
+          <div className="text-2xl font-bold">{i.value}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+JS
+
+cat > frontend/src/pages/Login.jsx <<'JS'
+import React, { useState } from 'react';
+import axios from 'axios';
+
+const API = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+
+export default function Login({ onLogin }){
+  const [username,setUsername] = useState('7058257708');
+  const [password,setPassword] = useState('7058257708');
+  const [mode,setMode] = useState('login');
+  const [err,setErr] = useState('');
+
+  const submit = async () => {
+    try{
+      setErr('');
+      if(mode==='login'){
+        const r = await axios.post(`${API}/auth/login`, { username, password });
+        onLogin(r.data.token, r.data.role);
+      } else {
+        await axios.post(`${API}/auth/signup`, { username, password });
+        setMode('login');
+      }
+    }catch(e){ setErr(e.response?.data?.error || 'Error'); }
+  };
+
+  return (
+    <div className="max-w-sm mx-auto mt-24 bg-white shadow rounded p-6">
+      <h1 className="text-xl font-bold mb-4">{mode==='login'?'Login':'Sign up'}</h1>
+      <input className="border p-2 rounded w-full mb-2" value={username} onChange={e=>setUsername(e.target.value)} placeholder="username" />
+      <input type="password" className="border p-2 rounded w-full mb-2" value={password} onChange={e=>setPassword(e.target.value)} placeholder="password" />
+      {err && <div className="text-red-600 text-sm mb-2">{err}</div>}
+      <button onClick={submit} className="bg-blue-600 text-white w-full py-2 rounded mb-2">{mode==='login'?'Login':'Create account'}</button>
+      <button onClick={()=>setMode(mode==='login'?'signup':'login')} className="text-sm text-gray-600 underline">
+        {mode==='login'?'Need an account? Sign up':'Have an account? Login'}
+      </button>
+    </div>
+  );
+}
+JS
+
+cat > frontend/src/pages/Dashboard.jsx <<'JS'
+import React, { useEffect, useState } from 'react';
+import axios from 'axios';
+import CoinTable from '../components/CoinTable';
+import TradeForm from '../components/TradeForm';
+
+const API = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+
+export default function Dashboard(){
+  const [coins,setCoins] = useState([]);
+  const [selected,setSelected] = useState(null);
+
+  const load = async () => {
+    const r = await axios.get(`${API}/coins`);
+    setCoins(r.data);
+  };
+
+  useEffect(()=>{ load(); },[]);
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="md:col-span-2">
+        <CoinTable coins={coins} onSelect={setSelected} />
+      </div>
+      <div>
+        {selected ? <TradeForm selected={selected} onDone={()=>{ setSelected(null); load(); }} />
+                  : <div className="bg-white p-4 rounded shadow text-gray-500">Select a coin to trade</div>}
+      </div>
+    </div>
+  );
+}
+JS
+
+cat > frontend/src/pages/Trades.jsx <<'JS'
+import React, { useEffect, useState } from 'react';
+import axios from 'axios';
+
+const API = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+
+export default function Trades(){
+  const [items,setItems] = useState([]);
+  const token = localStorage.getItem('token');
+
+  const load = async () => {
+    const r = await axios.get(`${API}/trades`, { headers:{ Authorization:`Bearer ${token}` }});
+    setItems(r.data);
+  };
+
+  useEffect(()=>{ load(); },[]);
+
+  return (
+    <div className="bg-white shadow rounded p-4">
+      <h2 className="font-bold text-lg mb-3">My Trades</h2>
+      <table className="w-full">
+        <thead>
+          <tr className="text-left">
+            <th className="p-2">Time</th>
+            <th className="p-2">Side</th>
+            <th className="p-2">Symbol</th>
+            <th className="p-2">Qty</th>
+            <th className="p-2">Price</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map(t=> (
+            <tr key={t._id} className="border-t">
+              <td className="p-2 text-sm text-gray-600">{new Date(t.createdAt).toLocaleString()}</td>
+              <td className="p-2 capitalize">{t.side}</td>
+              <td className="p-2">{t.symbol}</td>
+              <td className="p-2">{t.qty}</td>
+              <td className="p-2">{t.price}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+JS
+
+########################################
+# README
+########################################
+cat > README.md <<'MD'
+# BhairavX — Paper Trading Exchange
+
+**Admin login (demo only):** 7058257708 / 7058257708
+
+## Run locally
+```bash
+# terminal 1
+cd backend && cp .env.example .env && npm i && npm run dev
+# terminal 2
+cd frontend && npm i && npm run dev
+```
+
+Set `VITE_API_URL` in frontend to your backend `/api` if deploying.
+
+### Notes
+- Prices are static; update via Admin panel.
+- Trades adjust balances in base coin (BHC) for demo.
+- Change credentials, JWT secret, enable 2FA before production.
+MD
+
+########################################
+# Final message
+########################################
+cat <<'MSG'
+
+✅ Project scaffolded in ./coin-trade
+Next steps:
+1) Start MongoDB locally (e.g. `docker run -p 27017:27017 mongo:7`)
+2) In one terminal: `cd coin-trade/backend && cp .env.example .env && npm i && npm run dev`
+3) In another: `cd coin-trade/frontend && npm i && npm run dev`
+4) Open http://localhost:5173 and login with admin demo credentials.
+
+Security: Replace demo creds + JWT_SECRET for real use.
+MSG
